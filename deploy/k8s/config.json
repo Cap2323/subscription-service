@@ -1,0 +1,31 @@
+{
+  "profile": "production",
+  "http_addr": "0.0.0.0:8080",
+  "admin_addr": "0.0.0.0:9090",
+  "issuer": "https://identity.example.com",
+  "audience": "subscriptions",
+  "keys": [
+    {
+      "id": "replace-with-issuer-kid",
+      "file": "/etc/subscriptions/keys/current.pem"
+    }
+  ],
+  "cursor_key_env": "CURSOR_KEY",
+  "epoch": 1,
+  "buckets": 1024,
+  "shards": [
+    {
+      "id": "shard-a",
+      "dsn_env": "SHARD_A_DSN",
+      "admin_dsn_env": "SHARD_A_ADMIN_DSN"
+    },
+    {
+      "id": "shard-b",
+      "dsn_env": "SHARD_B_DSN",
+      "admin_dsn_env": "SHARD_B_ADMIN_DSN"
+    }
+  ],
+  "pool_max": 20,
+  "max_concurrent": 128,
+  "rps": 2000
+}

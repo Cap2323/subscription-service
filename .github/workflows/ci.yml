@@ -1,0 +1,66 @@
+name: verify
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      shard-a:
+        image: postgres:16-alpine
+        env: {POSTGRES_PASSWORD: ci-admin-only, POSTGRES_DB: subscriptions_test}
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d subscriptions_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+      shard-b:
+        image: postgres:16-alpine
+        env: {POSTGRES_PASSWORD: ci-admin-only, POSTGRES_DB: subscriptions_test}
+        ports: ["5434:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d subscriptions_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+      shard-c:
+        image: postgres:16-alpine
+        env: {POSTGRES_PASSWORD: ci-admin-only, POSTGRES_DB: subscriptions_test}
+        ports: ["5435:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d subscriptions_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go mod verify
+      - run: test -z "$(gofmt -l cmd internal migrations tests/integration)"
+      - run: go test -race -count=1 ./...
+      - run: go vet ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+      - name: Provision isolated test roles
+        env:
+          PGHOST: 127.0.0.1
+          PGPASSWORD: ci-admin-only
+          POSTGRES_USER: postgres
+          POSTGRES_DB: subscriptions_test
+          PG_APP_PASSWORD: ci-app-only
+          PG_MIGRATOR_PASSWORD: ci-migrator-only
+        run: |
+          for port in 5433 5434 5435; do
+            PGPORT=$port sh deploy/postgres/init.sh
+          done
+      - name: PostgreSQL integration and rebalance
+        env:
+          TEST_ALLOW_RESET: "yes"
+          TEST_SHARD_A_DSN: postgres://subscriptions_app:ci-app-only@127.0.0.1:5433/subscriptions_test?sslmode=disable
+          TEST_SHARD_B_DSN: postgres://subscriptions_app:ci-app-only@127.0.0.1:5434/subscriptions_test?sslmode=disable
+          TEST_SHARD_C_DSN: postgres://subscriptions_app:ci-app-only@127.0.0.1:5435/subscriptions_test?sslmode=disable
+          TEST_SHARD_A_ADMIN_DSN: postgres://subscriptions_migrator:ci-migrator-only@127.0.0.1:5433/subscriptions_test?sslmode=disable
+          TEST_SHARD_B_ADMIN_DSN: postgres://subscriptions_migrator:ci-migrator-only@127.0.0.1:5434/subscriptions_test?sslmode=disable
+          TEST_SHARD_C_ADMIN_DSN: postgres://subscriptions_migrator:ci-migrator-only@127.0.0.1:5435/subscriptions_test?sslmode=disable
+        run: go test -race -tags=integration -count=1 ./tests/integration
+      - run: docker build --target runtime -t subscriptions:ci .
+      - run: docker build --target admin -t subscriptions-admin:ci .

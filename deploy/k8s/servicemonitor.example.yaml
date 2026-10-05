@@ -1,0 +1,13 @@
+# Requires Prometheus Operator CRDs. Adjust the release label to your installation.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: subscriptions
+  namespace: monitoring
+  labels: {release: monitoring}
+spec:
+  namespaceSelector: {matchNames: [subscriptions]}
+  selector:
+    matchLabels: {app: subscriptions}
+  endpoints:
+    - {port: admin, path: /metrics, interval: 15s}

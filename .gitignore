@@ -1,0 +1,20 @@
+# Локальные настройки, ключи и токены
+.local/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Результаты запусков и резервные копии
+load-results/
+tests/load/tokens.json
+*.dump
+*.log
+
+# Собранные программы и скачанные архивы
+bin/
+*.exe
+*.test
+*.zip
+coverage.out

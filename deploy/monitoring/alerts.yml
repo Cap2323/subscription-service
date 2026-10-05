@@ -1,0 +1,23 @@
+groups:
+  - name: subscriptions
+    rules:
+      - alert: SubscriptionsTargetDown
+        expr: up{job="subscriptions"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "Subscriptions metrics target is unreachable"}
+      - alert: SubscriptionsHighErrorRatio
+        expr: sum(rate(subscriptions_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(subscriptions_http_requests_total[5m])), 1) > 0.01
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "5xx ratio exceeded 1%"}
+      - alert: SubscriptionsHighP99
+        expr: histogram_quantile(0.99, sum by (le) (rate(subscriptions_http_duration_seconds_bucket[5m]))) > 0.5
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "p99 API latency exceeded 500 ms"}
+      - alert: SubscriptionShardUnavailable
+        expr: subscriptions_shard_ready == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "A logical shard is unavailable, frozen, or has a different topology"}

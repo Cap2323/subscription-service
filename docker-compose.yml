@@ -1,0 +1,107 @@
+name: subscriptions-v2
+
+x-db: &db
+  image: postgres:16-alpine
+  environment:
+    POSTGRES_DB: subscriptions
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: ${PG_ADMIN_PASSWORD:?Run devtoken -init}
+    PG_MIGRATOR_PASSWORD: ${PG_MIGRATOR_PASSWORD:?Run devtoken -init}
+    PG_APP_PASSWORD: ${PG_APP_PASSWORD:?Run devtoken -init}
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U postgres -d subscriptions"]
+    interval: 3s
+    timeout: 3s
+    retries: 20
+  networks: [backend]
+  mem_limit: 512m
+  restart: unless-stopped
+
+x-admin: &admin
+  build: {context: ., target: admin}
+  environment:
+    SHARD_A_ADMIN_DSN: postgres://subscriptions_migrator:${PG_MIGRATOR_PASSWORD}@db-a:5432/subscriptions?sslmode=disable
+    SHARD_B_ADMIN_DSN: postgres://subscriptions_migrator:${PG_MIGRATOR_PASSWORD}@db-b:5432/subscriptions?sslmode=disable
+    SHARD_C_ADMIN_DSN: postgres://subscriptions_migrator:${PG_MIGRATOR_PASSWORD}@db-c:5432/subscriptions?sslmode=disable
+  volumes: ["./configs:/app/configs:ro"]
+  networks: [backend]
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  mem_limit: 256m
+
+services:
+  db-a:
+    <<: *db
+
+    volumes: ["data-a:/var/lib/postgresql/data", "./deploy/postgres/init.sh:/docker-entrypoint-initdb.d/01-roles.sh:ro"]
+  db-b:
+    <<: *db
+    ports: ["127.0.0.1:5434:5432"]
+    volumes: ["data-b:/var/lib/postgresql/data", "./deploy/postgres/init.sh:/docker-entrypoint-initdb.d/01-roles.sh:ro"]
+  db-c:
+    <<: *db
+    profiles: [expansion]
+    ports: ["127.0.0.1:5435:5432"]
+    volumes: ["data-c:/var/lib/postgresql/data", "./deploy/postgres/init.sh:/docker-entrypoint-initdb.d/01-roles.sh:ro"]
+  migrate:
+    <<: *admin
+    command: ["-config", "${API_CONFIG_PATH:-configs/docker.json}", "-command", "migrate"]
+    depends_on:
+      db-a: {condition: service_healthy}
+      db-b: {condition: service_healthy}
+  init-topology:
+    <<: *admin
+    command: ["-config", "${API_CONFIG_PATH:-configs/docker.json}", "-command", "init", "-execute"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  app:
+    build: {context: ., target: runtime}
+    command: ["-config", "${API_CONFIG_PATH:-configs/docker.json}"]
+    environment:
+      SHARD_A_DSN: postgres://subscriptions_app:${PG_APP_PASSWORD}@db-a:5432/subscriptions?sslmode=disable
+      SHARD_B_DSN: postgres://subscriptions_app:${PG_APP_PASSWORD}@db-b:5432/subscriptions?sslmode=disable
+      SHARD_C_DSN: postgres://subscriptions_app:${PG_APP_PASSWORD}@db-c:5432/subscriptions?sslmode=disable
+      CURSOR_KEY: ${CURSOR_KEY:?Run devtoken -init}
+      GOMEMLIMIT: 200MiB
+    volumes: ["./configs:/app/configs:ro", "./.local/public.pem:/app/.local/public.pem:ro"]
+    ports: ["127.0.0.1:8080:8080", "127.0.0.1:9090:9090"]
+    depends_on:
+      init-topology: {condition: service_completed_successfully}
+    networks: [backend, frontend]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    pids_limit: 100
+    cpus: 4.0
+    restart: unless-stopped
+    stop_grace_period: 20s
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    profiles: [monitoring]
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d"]
+    volumes: ["./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro", "./deploy/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro", "prom-data:/prometheus"]
+    ports: ["127.0.0.1:9091:9090"]
+    networks: [backend]
+  grafana:
+    image: grafana/grafana:13.2.3
+    profiles: [monitoring]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?Run devtoken -init}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes: ["./deploy/monitoring/grafana:/etc/grafana/provisioning:ro", "grafana-data:/var/lib/grafana"]
+    ports: ["127.0.0.1:3000:3000"]
+    networks: [backend]
+
+networks:
+  backend:
+    internal: true
+  frontend:
+    driver: bridge
+volumes:
+  data-a:
+  data-b:
+  data-c:
+  prom-data:
+  grafana-data:

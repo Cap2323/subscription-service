@@ -1,0 +1,647 @@
+openapi: 3.0.3
+info:
+  title: Sharded Subscriptions API
+  version: 2.0.0
+  description: RS256 JWT with sub as user UUID. Read operations require subscriptions:read;
+    writes require subscriptions:write. This service records and aggregates subscriptions;
+    it does not charge payments. JSON max 16 KiB. Unknown/duplicate fields and query
+    parameters are rejected.
+servers:
+- url: http://127.0.0.1:8080
+  description: Local development
+paths:
+  /api/v1/subscriptions:
+    post:
+      summary: Create for the JWT subject; idempotent for at least 24 hours
+      tags:
+      - subscriptions
+      security:
+      - BearerJWT: []
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
+        description: Printable ASCII; use a fresh UUID for a new operation, reuse
+          on retries.
+      responses:
+        '201':
+          description: Created, or replay of the original successful POST
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+          headers:
+            ETag:
+              schema:
+                type: string
+            Location:
+              schema:
+                type: string
+            Idempotency-Replayed:
+              schema:
+                type: string
+                enum:
+                - 'true'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Required scope missing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Request rate exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Overload, unavailable shard, topology change, or retryable
+            database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: Request deadline exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: JSON body exceeds 16 KiB
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '415':
+          description: Content-Type must be application/json
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Idempotency conflict or subscription quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Create'
+    get:
+      summary: List only the authenticated user; keyset pagination
+      tags:
+      - subscriptions
+      security:
+      - BearerJWT: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+        description: ''
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 2048
+        description: ''
+      - name: service_name
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description: Exact, case-sensitive name.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Page'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Required scope missing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Request rate exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Overload, unavailable shard, topology change, or retryable
+            database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: Request deadline exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/subscriptions/{id}:
+    get:
+      summary: Get an owned subscription
+      tags:
+      - subscriptions
+      security:
+      - BearerJWT: []
+      parameters:
+      - &id001
+        name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: ''
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+          headers:
+            ETag:
+              schema:
+                type: string
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Required scope missing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Request rate exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Overload, unavailable shard, topology change, or retryable
+            database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: Request deadline exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Subscription not found for this owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      summary: Update specified fields; end_date:null clears the end date
+      tags:
+      - subscriptions
+      security:
+      - BearerJWT: []
+      parameters:
+      - *id001
+      - &id002
+        name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          pattern: ^"[1-9][0-9]*"$
+          example: '"1"'
+        description: Current ETag returned by GET/POST/PATCH; stale => 412, absent
+          => 428.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+          headers:
+            ETag:
+              schema:
+                type: string
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Required scope missing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Request rate exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Overload, unavailable shard, topology change, or retryable
+            database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: Request deadline exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: JSON body exceeds 16 KiB
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '415':
+          description: Content-Type must be application/json
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Subscription not found for this owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '412':
+          description: Resource version changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '428':
+          description: If-Match header required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Patch'
+    delete:
+      summary: Delete an owned subscription with version check
+      tags:
+      - subscriptions
+      security:
+      - BearerJWT: []
+      parameters:
+      - *id001
+      - *id002
+      responses:
+        '204':
+          description: Deleted; no response body
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Required scope missing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Request rate exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Overload, unavailable shard, topology change, or retryable
+            database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: Request deadline exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Subscription not found for this owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '412':
+          description: Resource version changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '428':
+          description: If-Match header required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/subscriptions/total:
+    get:
+      summary: Sum price times active months in an inclusive bounded period
+      tags:
+      - subscriptions
+      security:
+      - BearerJWT: []
+      parameters:
+      - name: from
+        in: query
+        required: true
+        schema: &id003
+          type: string
+          pattern: ^(0[1-9]|1[0-2])-[0-9]{4}$
+          example: 07-2025
+          description: Calendar month, years 0001..9999.
+        description: ''
+      - name: to
+        in: query
+        required: true
+        schema: *id003
+        description: ''
+      - name: service_name
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description: ''
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Total'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Required scope missing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Request rate exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Overload, unavailable shard, topology change, or retryable
+            database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: Request deadline exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      description: Both months are included. Maximum period is 1200 months. Open-ended
+        subscriptions are clipped at to. No cross-user aggregation. Historical prices
+        are not stored.
+components:
+  securitySchemes:
+    BearerJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Create:
+      type: object
+      additionalProperties: false
+      required:
+      - service_name
+      - price
+      - start_date
+      properties: &id004
+        service_name: &id005
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: Yandex Plus
+        price: &id006
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 2147483647
+          example: 400
+          description: Monthly price in whole units of the one currency chosen by
+            this deployment.
+        start_date: *id003
+        end_date: &id007
+          type: string
+          pattern: ^(0[1-9]|1[0-2])-[0-9]{4}$
+          example: 07-2025
+          description: Calendar month, years 0001..9999.
+          nullable: true
+    Patch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties: *id004
+    Subscription:
+      type: object
+      required:
+      - id
+      - user_id
+      - service_name
+      - price
+      - start_date
+      - end_date
+      - version
+      - created_at
+      - updated_at
+      properties:
+        service_name: *id005
+        price: *id006
+        start_date: *id003
+        end_date: *id007
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Error:
+      type: object
+      required:
+      - code
+      - message
+      - request_id
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        request_id:
+          type: string
+    Page:
+      type: object
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Subscription'
+        next_cursor:
+          type: string
+          description: Empty when no more items. Cursor is bound to user and filter
+            and expires in 24h.
+    Total:
+      type: object
+      required:
+      - total
+      properties:
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Exact int64 amount in whole currency units. JavaScript clients
+            need lossless integer decoding above Number.MAX_SAFE_INTEGER.

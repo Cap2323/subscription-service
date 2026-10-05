@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: subscriptions}
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels: {app: subscriptions, component: api}
+  template:
+    metadata:
+      labels: {app: subscriptions, component: api}
+    spec:
+      serviceAccountName: subscriptions
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: {app: subscriptions, component: api}
+      containers:
+        - name: api
+          image: SUBSCRIPTIONS_API_IMAGE
+          args: ["-config", "/etc/subscriptions/config/config.json"]
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: admin, containerPort: 9090}
+          envFrom:
+            - secretRef: {name: subscriptions-runtime}
+          env:
+            - {name: GOMEMLIMIT, value: "400MiB"}
+          resources:
+            requests: {cpu: 250m, memory: 256Mi}
+            limits: {cpu: "2", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          lifecycle:
+            preStop:
+              sleep: {seconds: 5}
+          startupProbe:
+            httpGet: {path: /livez, port: admin}
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: {path: /livez, port: admin}
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: admin}
+            periodSeconds: 5
+            failureThreshold: 2
+          volumeMounts:
+            - {name: config, mountPath: /etc/subscriptions/config, readOnly: true}
+            - {name: jwt, mountPath: /etc/subscriptions/keys, readOnly: true}
+            - {name: db-ca, mountPath: /etc/subscriptions/db-ca, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: subscriptions-config}
+        - name: jwt
+          secret: {secretName: subscriptions-jwt, defaultMode: 292}
+        - name: db-ca
+          secret: {secretName: subscriptions-db-ca, defaultMode: 292}

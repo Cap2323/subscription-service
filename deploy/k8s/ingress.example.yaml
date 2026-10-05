@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: subscriptions
+  namespace: subscriptions
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "16k"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [subscriptions.example.com]
+      secretName: subscriptions-tls
+  rules:
+    - host: subscriptions.example.com
+      http:
+        paths:
+          - path: /api/v1/subscriptions
+            pathType: Prefix
+            backend:
+              service:
+                name: subscriptions
+                port: {number: 8080}

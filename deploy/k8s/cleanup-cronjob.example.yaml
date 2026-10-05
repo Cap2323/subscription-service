@@ -1,0 +1,72 @@
+# Apply after migrations/init; suspend during topology operations.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: subscriptions-cleanup
+  namespace: subscriptions
+spec:
+  schedule: '*/5 * * * *'
+  suspend: false
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 1200
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: subscriptions
+            component: admin
+        spec:
+          restartPolicy: Never
+          serviceAccountName: subscriptions
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+          - name: admin
+            image: registry.example.com/subscriptions-admin:REPLACE_WITH_RELEASE_TAG
+            args:
+            - -config
+            - /etc/subscriptions/config/config.json
+            - -command
+            - cleanup
+            envFrom:
+            - secretRef:
+                name: subscriptions-admin
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                cpu: '1'
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                - ALL
+            volumeMounts:
+            - name: config
+              mountPath: /etc/subscriptions/config
+              readOnly: true
+            - name: db-ca
+              mountPath: /etc/subscriptions/db-ca
+              readOnly: true
+          volumes:
+          - name: config
+            configMap:
+              name: subscriptions-config
+          - name: db-ca
+            secret:
+              secretName: subscriptions-db-ca
+              defaultMode: 292
